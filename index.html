@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>수강신청 시스템</title>
+    <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/main.min.css' rel='stylesheet' />
     <style>
         * {
             margin: 0;
@@ -109,7 +110,7 @@
             margin-bottom: 24px;
         }
 
-        .course-section {
+        .course-section, .registered-courses, .calendar-section {
             background: white;
             border-radius: 12px;
             padding: 24px;
@@ -303,10 +304,6 @@
 
         /* Registered Courses */
         .registered-courses {
-            background: white;
-            border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             height: fit-content;
         }
 
@@ -357,6 +354,38 @@
             text-align: center;
             color: #6b7280;
             padding: 40px 20px;
+        }
+
+        /* Calendar Section */
+        .calendar-section {
+            grid-column: span 2; /* Make calendar span full width on desktop */
+            margin-top: 24px;
+        }
+
+        #calendar {
+            max-width: 100%;
+            margin: 0 auto;
+            font-size: 14px; /* Adjust font size for better readability on calendar */
+        }
+
+        /* FullCalendar customizations (optional) */
+        .fc .fc-button-primary {
+            background-color: #2563eb;
+            border-color: #2563eb;
+        }
+
+        .fc .fc-button-primary:hover {
+            background-color: #1d4ed8;
+            border-color: #1d4ed8;
+        }
+
+        .fc-event {
+            background-color: #3b82f6 !important; /* Blue for events */
+            border-color: #3b82f6 !important;
+            color: white !important;
+            font-size: 12px;
+            padding: 2px 4px;
+            border-radius: 4px;
         }
 
         /* Modal */
@@ -463,6 +492,10 @@
             .modal-info {
                 grid-template-columns: 1fr;
             }
+
+            .calendar-section {
+                grid-column: span 1; /* Reset for mobile */
+            }
         }
     </style>
 </head>
@@ -481,7 +514,6 @@
     </header>
 
     <div class="container">
-        <!-- Status Section -->
         <div class="status-section">
             <h2>
                 <svg class="icon" viewBox="0 0 24 24">
@@ -508,9 +540,7 @@
             </div>
         </div>
 
-        <!-- Main Content -->
         <div class="main-content">
-            <!-- Course Search and List -->
             <div class="course-section">
                 <h2 class="section-title">
                     <svg class="icon" viewBox="0 0 24 24">
@@ -543,11 +573,9 @@
                 </div>
 
                 <div class="course-list" id="courseList">
-                    <!-- Courses will be populated here -->
-                </div>
+                    </div>
             </div>
 
-            <!-- Registered Courses -->
             <div class="registered-courses">
                 <h2 class="section-title">신청한 강의</h2>
                 <div class="registered-list" id="registeredList">
@@ -556,10 +584,22 @@
                     </div>
                 </div>
             </div>
+
+            <div class="calendar-section">
+                <h2 class="section-title">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    나의 시간표
+                </h2>
+                <div id="calendar"></div>
+            </div>
         </div>
     </div>
 
-    <!-- Modal -->
     <div class="modal" id="courseModal">
         <div class="modal-content">
             <div class="modal-header">
@@ -611,6 +651,7 @@
         </div>
     </div>
 
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js'></script>
     <script>
         // Sample data
         const courses = [
@@ -683,11 +724,13 @@
 
         let registeredCourses = [];
         let selectedCourse = null;
+        let calendar; // Declare calendar globally
 
         // Initialize app
         document.addEventListener('DOMContentLoaded', function() {
             renderCourses();
             updateStatus();
+            initializeCalendar();
             
             // Event listeners
             document.getElementById('searchInput').addEventListener('input', filterCourses);
@@ -739,8 +782,8 @@
             
             return courses.filter(course => {
                 const matchesSearch = course.name.toLowerCase().includes(searchTerm) ||
-                                    course.code.toLowerCase().includes(searchTerm) ||
-                                    course.professor.toLowerCase().includes(searchTerm);
+                                      course.code.toLowerCase().includes(searchTerm) ||
+                                      course.professor.toLowerCase().includes(searchTerm);
                 const matchesDepartment = selectedDepartment === '전체' || course.department === selectedDepartment;
                 return matchesSearch && matchesDepartment;
             });
@@ -773,8 +816,8 @@
                 return;
             }
 
-            const timeConflict = registeredCourses.some(registered => registered.time === course.time);
-            if (timeConflict) {
+            // Time conflict check
+            if (checkTimeConflict(course)) {
                 alert('시간이 겹치는 강의가 있습니다.');
                 return;
             }
@@ -785,6 +828,7 @@
             renderCourses();
             renderRegisteredCourses();
             updateStatus();
+            updateCalendarEvents(); // Update calendar after registration
             closeModal();
             alert('수강신청이 완료되었습니다!');
         }
@@ -797,6 +841,7 @@
             renderCourses();
             renderRegisteredCourses();
             updateStatus();
+            updateCalendarEvents(); // Update calendar after cancellation
             alert('수강신청이 취소되었습니다.');
         }
 
@@ -884,6 +929,110 @@
                 closeModal();
             }
         });
+
+        // --- Calendar Functions ---
+
+        function initializeCalendar() {
+            const calendarEl = document.getElementById('calendar');
+            calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'timeGridWeek', // Display weekly view
+                locale: 'ko', // Korean locale
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'timeGridWeek,timeGridDay' // Week and Day views
+                },
+                slotMinTime: '08:00:00', // Start calendar at 8 AM
+                slotMaxTime: '22:00:00', // End calendar at 10 PM
+                allDaySlot: false, // Hide all-day slot
+                events: getCalendarEvents(), // Populate with events
+                eventDidMount: function(info) {
+                    // Customize event appearance if needed
+                    info.el.style.backgroundColor = '#3b82f6';
+                    info.el.style.borderColor = '#3b82f6';
+                    info.el.style.color = 'white';
+                }
+            });
+            calendar.render();
+        }
+
+        function getCalendarEvents() {
+            const events = [];
+            registeredCourses.forEach(course => {
+                const times = parseCourseTime(course.time);
+                times.forEach(timeSlot => {
+                    events.push({
+                        id: course.id,
+                        title: course.name,
+                        daysOfWeek: [timeSlot.day], // Day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
+                        startTime: timeSlot.startTime,
+                        endTime: timeSlot.endTime,
+                        extendedProps: {
+                            professor: course.professor,
+                            department: course.department
+                        }
+                    });
+                });
+            });
+            return events;
+        }
+
+        function updateCalendarEvents() {
+            calendar.removeAllEvents(); // Clear existing events
+            calendar.addEventSource(getCalendarEvents()); // Add new events
+            calendar.refetchEvents(); // Re-render calendar with new events
+        }
+
+        // Helper to parse course time string (e.g., "월/수 09:00-10:30")
+        function parseCourseTime(timeString) {
+            const timeSlots = [];
+            const parts = timeString.split(' '); // e.g., ["월/수", "09:00-10:30"]
+            const days = parts[0].split('/'); // e.g., ["월", "수"]
+            const [startTime, endTime] = parts[1].split('-'); // e.g., ["09:00", "10:30"]
+
+            const dayMap = {
+                '일': 0, '월': 1, '화': 2, '수': 3, '목': 4, '금': 5, '토': 6
+            };
+
+            days.forEach(dayAbbr => {
+                const dayIndex = dayMap[dayAbbr];
+                if (dayIndex !== undefined) {
+                    timeSlots.push({
+                        day: dayIndex,
+                        startTime: startTime + ':00', // FullCalendar expects HH:MM:SS
+                        endTime: endTime + ':00'
+                    });
+                }
+            });
+            return timeSlots;
+        }
+
+        function checkTimeConflict(newCourse) {
+            const newCourseTimeSlots = parseCourseTime(newCourse.time);
+
+            for (const existingCourse of registeredCourses) {
+                const existingCourseTimeSlots = parseCourseTime(existingCourse.time);
+
+                for (const newSlot of newCourseTimeSlots) {
+                    for (const existingSlot of existingCourseTimeSlots) {
+                        // Check if days overlap
+                        if (newSlot.day === existingSlot.day) {
+                            // Convert times to comparable format (e.g., minutes from midnight)
+                            const newStart = parseInt(newSlot.startTime.split(':')[0]) * 60 + parseInt(newSlot.startTime.split(':')[1]);
+                            const newEnd = parseInt(newSlot.endTime.split(':')[0]) * 60 + parseInt(newSlot.endTime.split(':')[1]);
+                            const existingStart = parseInt(existingSlot.startTime.split(':')[0]) * 60 + parseInt(existingSlot.startTime.split(':')[1]);
+                            const existingEnd = parseInt(existingSlot.endTime.split(':')[0]) * 60 + parseInt(existingSlot.endTime.split(':')[1]);
+
+                            // Check for overlap: [start1, end1] and [start2, end2] overlap if start1 < end2 AND start2 < end1
+                            if (newStart < existingEnd && existingStart < newEnd) {
+                                return true; // Conflict detected
+                            }
+                        }
+                    }
+                }
+            }
+            return false; // No conflict
+        }
     </script>
 </body>
 </html>
